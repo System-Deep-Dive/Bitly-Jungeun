@@ -1,0 +1,55 @@
+name: "Code Review by Gemini AI"
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: "Get diff of the pull request"
+        id: get_diff
+        shell: bash
+        env:
+          PULL_REQUEST_HEAD_REF: "${{ github.event.pull_request.head.ref }}"
+          PULL_REQUEST_BASE_REF: "${{ github.event.pull_request.base.ref }}"
+        run: |-
+          git fetch origin "${{ env.PULL_REQUEST_HEAD_REF }}"
+          git fetch origin "${{ env.PULL_REQUEST_BASE_REF }}"
+          git checkout "${{ env.PULL_REQUEST_HEAD_REF }}"
+          git diff "origin/${{ env.PULL_REQUEST_BASE_REF }}" > "diff.txt"
+          {
+            echo "pull_request_diff<<EOF";
+            cat "diff.txt";
+            echo 'EOF';
+          } >> $GITHUB_OUTPUT
+      
+      - uses: rubensflinco/gemini-code-review-action@1.0.5
+        name: "Code Review by Gemini AI"
+        id: review
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_repository: ${{ github.repository }}
+          github_pull_request_number: ${{ github.event.pull_request.number }}
+          git_commit_hash: ${{ github.event.pull_request.head.sha }}
+          model: "gemini-1.5-pro-latest"
+          pull_request_diff: |-
+            ${{ steps.get_diff.outputs.pull_request_diff }}
+          pull_request_chunk_size: "3500"
+          extra_prompt: |-
+            다음 기준으로 코드를 리뷰해주세요:
+            1. 코드 품질과 가독성
+            2. 보안 취약점
+            3. 성능 최적화 가능성
+            4. 모범 사례 준수 여부
+            5. 테스트 가능성
+            
+            한국어로 답변해주세요.
+          log_level: "INFO"
