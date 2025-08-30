@@ -1,0 +1,80 @@
+name: "Code Review by CodeRabbit"
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: CodeRabbit Review
+        uses: coderabbitai/ai-pr-review@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CODERRABBIT_API_KEY: ${{ secrets.CODERRABBIT_API_KEY }}
+        with:
+          # 리뷰 설정
+          review_simple_changes: true
+          review_comment_lgtm: true
+          path_filters: |
+            **/*.{js,ts,jsx,tsx,py,java,cpp,c,cs,go,rs,php,rb,swift,kt}
+            **/*.{yml,yaml,json,md,txt}
+            **/*.{dockerfile,docker-compose}
+            **/*.{sql,sh,bash}
+          
+          # 한국어 설정
+          language: "ko"
+          
+          # 리뷰 스타일
+          review_style: "detailed"
+          
+          # 자동 승인 조건
+          auto_approve: false
+          
+          # 코멘트 설정
+          max_review_comment_length: 1000
+          
+          # 파일 크기 제한
+          max_file_size: 1000000
+          
+          # 커스텀 프롬프트
+          custom_prompt: |
+            다음 기준으로 코드를 리뷰해주세요:
+            
+            1. **코드 품질**
+               - 가독성과 유지보수성
+               - 네이밍 컨벤션
+               - 코드 구조와 설계
+            
+            2. **보안**
+               - 보안 취약점 식별
+               - 입력 검증
+               - 인증/인가 로직
+            
+            3. **성능**
+               - 알고리즘 효율성
+               - 메모리 사용량
+               - 최적화 가능성
+            
+            4. **모범 사례**
+               - 언어별 베스트 프랙티스
+               - 디자인 패턴
+               - 에러 처리
+            
+            5. **테스트**
+               - 테스트 가능성
+               - 테스트 커버리지
+               - 모킹/스터빙
+            
+            한국어로 친근하고 도움이 되는 톤으로 답변해주세요.
+            구체적인 개선 제안과 함께 설명해주세요.
