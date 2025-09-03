@@ -105,3 +105,45 @@
 
 ### 13. References
 - Google 스타일 디자인 문서 개요 정리: GN 기사 요약 참고 (https://news.hada.io/topic?id=14704)
+
+
+## Local Dev Setup (Docker Compose)
+
+### Prerequisites
+- Docker Desktop (Compose v2)
+
+### Services
+- PostgreSQL 16, Redis 7(alpine). Spring Boot 앱은 추후 `api` 서비스로 추가 예정.
+
+### Memory Limits in Compose
+- `deploy.resources.limits.memory`는 Swarm 용 필드입니다. 로컬 Compose에서 강제하려면 `docker compose --compatibility up` 또는 서비스별 `mem_limit`(레거시) 사용을 권장합니다.
+- JVM(스프링) 컨테이너는 `-XX:+UseContainerSupport -XX:MaxRAMPercentage=<N>`로 컨테이너 메모리 한도를 인지시켜야 OOM을 피할 수 있습니다.
+
+### How to Run
+```bash
+docker compose --compatibility up -d
+```
+
+### Connection Info
+- Postgres: `localhost:5432` (user: bitly, password: bitly, db: bitly)
+- Redis: `localhost:6379`
+
+### Spring Boot (예시 설정)
+- `application.yml` 예시
+```yaml
+spring:
+  datasource:
+    url: jdbc:postgresql://postgres:5432/bitly
+    username: bitly
+    password: bitly
+  redis:
+    host: redis
+    port: 6379
+server:
+  port: 8080
+```
+
+### Notes
+- Redis는 `--maxmemory 1gb --maxmemory-policy allkeys-lru`로 설정되어 LRU 에비션 동작.
+- Postgres/Redis 모두 healthcheck 포함.
+- 추후 엣지/CDN 적용 시, 인기 코드 Top-N 프리워밍과 태그 기반 purge 전략을 고려하세요.
