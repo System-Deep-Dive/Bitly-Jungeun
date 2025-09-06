@@ -27,15 +27,16 @@
   - 관측(로그/메트릭/트레이싱)은 엣지/오리진 모두에서 수집
 
 ### 4. APIs (스케치)
-- GET `/{code}`: 코드로 리다이렉트 수행
+- GET `/api/v1/urls/{shortUrl}`: 코드로 리다이렉트 수행
   - 301/302 Location: `<original_url>`
   - 캐시 제어 헤더: 엣지 캐시 가능, 단 TTL/무효화 정책 고려
-- POST `/shorten` (참고): 원본 URL → 단축 코드 생성(본 문서 비스코프)
+- POST `/api/v1/urls` (참고): 원본 URL → 단축 코드 생성(본 문서 비스코프)
 
 ### 5. Data Storage
 - 테이블: `url_mapping`
-  - `code` (PK, 고정 길이 문자열) — 단축 코드, 기본 키 및 인덱스
+  - `id` (PK, 고정 길이 문자열) — 단축 코드, 기본 키 및 인덱스
   - `original_url` (text)
+  - `shortUrl`
   - `created_at`, `expires_at`(선택)
 - 인덱싱
   - B-트리 인덱스(기본) 또는 해시 인덱스(정확 일치 최적화, PostgreSQL 등)
