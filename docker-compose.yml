@@ -21,6 +21,8 @@ services:
         reservations:
           memory: 128M
           cpus: '0.1'
+    networks:
+      - bitly 
 
   redis:
     image: redis:7-alpine
@@ -41,6 +43,8 @@ services:
         reservations:
           memory: 64M
           cpus: '0.1'
+    networks:
+      - bitly
 
   # Spring Boot 애플리케이션
   api:
@@ -79,6 +83,8 @@ services:
       retries: 5
       start_period: 60s
     restart: unless-stopped
+    networks:
+      - bitly
 
   # 모니터링 스택
   prometheus:
@@ -101,6 +107,8 @@ services:
       - node-exporter
       - postgres-exporter
       - redis-exporter
+    networks:
+      - bitly
 
   grafana:
     image: grafana/grafana:latest
@@ -115,6 +123,8 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
     depends_on:
       - prometheus
+    networks:
+      - bitly
 
   node-exporter:
     image: prom/node-exporter:latest
@@ -130,6 +140,8 @@ services:
       - '--path.rootfs=/rootfs'
       - '--path.sysfs=/host/sys'
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - bitly
 
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:latest
@@ -141,6 +153,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - bitly
 
   redis-exporter:
     image: oliver006/redis_exporter:latest
@@ -152,6 +166,8 @@ services:
       - REDIS_PASSWORD=
     depends_on:
       - redis
+    networks:
+      - bitly
 
   influxdb:
     image: influxdb:1.8
@@ -161,12 +177,16 @@ services:
     environment:
       - INFLUXDB_DB=k6
     restart: on-failure
+    networks:
+      - bitly
     volumes:
       - influxdb_data:/var/lib/influxdb
 
   k6:
     image: grafana/k6:latest
     container_name: k6
+    networks:
+      - bitly
     ports:
       - "6565:6565"
     environment:
@@ -191,12 +211,14 @@ services:
     devices:
       - /dev/kmsg
     privileged: true
-
+    networks:
+      - bitly
+      
 volumes:
   prometheus_data:
   grafana_data:
   influxdb_data:
 
 networks:
-  default:
-    name: bitly
+  bitly:
+    driver: bridge
