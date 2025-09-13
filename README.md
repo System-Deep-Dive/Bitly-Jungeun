@@ -36,19 +36,25 @@
 - **GET** `/api/v1/urls/indexed/{shortUrl}`: **Phase 2** - 인덱스 활용 조회
 - **GET** `/api/v1/urls/cached/{shortUrl}`: **Phase 3** - Redis 캐시 우선 조회
 
-#### 4.3 모니터링 API (Phase 3)
-- **GET** `/api/v1/test/stats`: 캐시 통계 조회
-- **POST** `/api/v1/test/load-test`: 간단한 로드 테스트
 
 ### 5. Data Storage
-- 테이블: `url_mapping`
-  - `id` (PK, 고정 길이 문자열) — 단축 코드, 기본 키 및 인덱스
-  - `original_url` (text)
-  - `shortUrl`
-  - `created_at`, `expires_at`(선택)
-- 인덱싱
-  - B-트리 인덱스(기본) 또는 해시 인덱스(정확 일치 최적화, PostgreSQL 등)
-  - 샤딩/파티셔닝: 코드 해시 기반 범용 샤딩, 리전별 리드 레플리카
+
+#### 5.1 테이블 분리 구조 (Phase별 성능 측정용)
+- **`url_mapping_baseline`**: Phase 1용 (인덱스 없음)
+  - `id` (PK, Auto Increment)
+  - `short_url` (varchar, unique) — 인덱스 없음 (Full Table Scan)
+  - `original_url` (varchar, 2000자)
+
+- **`url_mapping_indexed`**: Phase 2용 (인덱스 있음)  
+  - `id` (PK, Auto Increment)
+  - `short_url` (varchar, unique) — B-tree 인덱스 있음 (Index Scan)
+  - `original_url` (varchar, 2000자)
+  - 인덱스: `idx_short_url_indexed` on `short_url`
+
+#### 5.2 데이터 동기화 전략
+- **URL 생성 시**: 2개 테이블에 동시 저장 (동일한 shortUrl, originalUrl)
+- **Phase별 조회**: 각각 다른 테이블에서 조회하여 성능 차이 측정
+- **캐시 레이어**: Phase 3에서 Redis 캐시 추가 (테이블은 indexed 사용)
 
 ### 6. Performance Optimization Phases
 
@@ -69,7 +75,7 @@
 - **아키텍처**: Spring Boot → Redis → PostgreSQL
 - **캐시 전략**:
   - 키 포맷: `url:{shortCode}`
-  - TTL: 일반 URL 1시간, 인기 URL 24시간
+  - TTL: 15분 (단일 정책으로 단순화)
   - 에비션: LRU (Redis 기본)
 - **특징**: O(1) 캐시 조회, DB 폴백
 - **예상 성능**: 1-5ms per request (100x 개선)
@@ -77,7 +83,7 @@
 
 #### 6.4 캐시 정책 및 일관성
 - **에비션 정책**: Redis LRU (최근 사용 우선)
-- **TTL 전략**: 길이 기반 간단 판별 (3자리 이하 = 핫)
+- **TTL 전략**: 15분 고정 (단순화된 정책)
 - **일관성**: Read-only 워크로드로 캐시 무효화 최소화
 - **모니터링**: 히트율, 미스율 실시간 추적
 
@@ -99,153 +105,20 @@
 | 2 | DB + Index | 20-50ms | ~50-100 | N/A |
 | 3 | Redis + DB | 5-20ms | ~200-500 | 90%+ |
 
-### 8. Implementation Plan
 
-#### 8.1 Phase 1: Baseline Setup (1-2일)
-- 현재 코드 상태로 성능 측정
-- k6 스크립트 작성 및 실행
-- 기준 성능 데이터 수집
+### 8. Metrics & Success Criteria
 
-#### 8.2 Phase 2: Database Optimization (1-2일)
-- PostgreSQL에 `short_url` 인덱스 추가
-- 동일 k6 테스트 실행
-- 인덱스 효과 정량적 측정
-
-#### 8.3 Phase 3: Caching Implementation (2-3일)
-- Redis 캐시 서비스 구현
-- 캐시 통계 모니터링 추가
-- 캐시 워밍업 및 히트율 최적화
-
-### 9. Metrics & Success Criteria
-
-#### 9.1 Performance Targets
+#### 8.1 Performance Targets
 - **Phase 1**: Baseline 측정 (현재 성능)
 - **Phase 2**: Phase 1 대비 5x 이상 성능 개선
 - **Phase 3**: Phase 1 대비 20x 이상 성능 개선, 캐시 히트율 90%+
 
-#### 9.2 Monitoring Metrics
+#### 8.2 Monitoring Metrics
 - **응답 시간**: p95, p99, 평균
 - **처리량**: RPS, 총 요청 수
 - **캐시 효율**: 히트율, 미스율
 - **에러율**: HTTP 4xx/5xx 비율
 
-### 10. Risks & Mitigations
-
-#### 10.1 Technical Risks
-- **캐시 스탬피드**: 동일 키 동시 요청 → Redis 싱글 스레드 특성으로 자연 해결
-- **메모리 부족**: Redis 캐시 크기 제한 → LRU 에비션 정책으로 자동 관리
-- **캐시 일관성**: DB 변경 시 캐시 무효화 → Read-only 워크로드로 최소화
-
-#### 10.2 Measurement Risks
-- **테스트 환경 편향**: 로컬 환경 한계 → Docker Compose로 일관된 환경 유지
-- **부하 패턴 부정확**: 실제 트래픽과 다름 → 동일 URL 반복 조회로 Hot key 시뮬레이션
-- **측정 오차**: 네트워크 지연 등 → 동일 조건 반복 테스트로 평균화
-
-### 11. k6 Test Scripts
-
-#### 11.1 Phase별 Load Test 스크립트들
-
-**k6-baseline.js** (Phase 1: 인덱스 없음)
-```javascript
-import http from 'k6/http';
-import { check, sleep } from 'k6';
-
-export let options = {
-  vus: 10,
-  duration: '30s',
-  thresholds: {
-    http_req_duration: ['p(95)<500'], // Phase 1에서는 느릴 수 있음
-  },
-};
-
-const shortUrls = ['abc123', 'def456', 'ghi789']; // 테스트용 URL들
-
-export default function () {
-  const randomUrl = shortUrls[Math.floor(Math.random() * shortUrls.length)];
-  let response = http.get(`http://localhost:8080/api/v1/urls/baseline/${randomUrl}`);
-
-  check(response, {
-    'status is 302': (r) => r.status === 302,
-    'has location header': (r) => r.headers['Location'] !== undefined,
-  });
-
-  sleep(0.1);
-}
-```
-
-**k6-indexed.js** (Phase 2: 인덱스 있음)
-```javascript
-import http from 'k6/http';
-import { check, sleep } from 'k6';
-
-export let options = {
-  vus: 10,
-  duration: '30s',
-  thresholds: {
-    http_req_duration: ['p(95)<100'], // 인덱스로 빨라질 것
-  },
-};
-
-const shortUrls = ['abc123', 'def456', 'ghi789'];
-
-export default function () {
-  const randomUrl = shortUrls[Math.floor(Math.random() * shortUrls.length)];
-  let response = http.get(`http://localhost:8080/api/v1/urls/indexed/${randomUrl}`);
-
-  check(response, {
-    'status is 302': (r) => r.status === 302,
-    'response time improved': (r) => r.timings.duration < 200, // Phase 1보다 개선
-  });
-
-  sleep(0.1);
-}
-```
-
-**k6-cached.js** (Phase 3: 캐시 있음)
-```javascript
-import http from 'k6/http';
-import { check, sleep } from 'k6';
-
-export let options = {
-  vus: 10,
-  duration: '30s',
-  thresholds: {
-    http_req_duration: ['p(95)<50'], // 캐시로 매우 빨라질 것
-  },
-};
-
-const shortUrls = ['abc123', 'def456', 'ghi789'];
-
-export default function () {
-  const randomUrl = shortUrls[Math.floor(Math.random() * shortUrls.length)];
-  let response = http.get(`http://localhost:8080/api/v1/urls/cached/${randomUrl}`);
-
-  check(response, {
-    'status is 302': (r) => r.status === 302,
-    'cache hit or fast response': (r) => r.timings.duration < 20, // 캐시 히트
-  });
-
-  sleep(0.05); // 더 빠른 요청 간격
-}
-```
-
-
-### 12. Success Criteria & Validation
-
-#### 12.1 Phase별 검증 포인트
-- **Phase 1**: 안정적인 베이스라인 측정
-- **Phase 2**: 인덱스 추가 후 5x 성능 개선 확인
-- **Phase 3**: 캐시 적용 후 20x 성능 개선 + 90% 히트율 달성
-
-#### 12.2 결과 해석
-- 실제 성능 수치는 하드웨어/데이터 크기에 따라 달라질 수 있음
-- 상대적 개선율이 더 중요 (Phase 1 → Phase 2 → Phase 3)
-- 캐시 히트율은 워크로드 패턴에 따라 조정 필요
-
-### 13. References
-- k6 Documentation: https://k6.io/docs/
-- Redis Caching Patterns: https://redis.io/documentation
-- PostgreSQL Indexing: https://www.postgresql.org/docs/current/indexes.html
 
 ## Local Dev Setup (Docker Compose)
 
@@ -269,19 +142,6 @@ docker compose --compatibility up -d
 # 또는 모니터링만 실행
 docker compose --compatibility up -d prometheus grafana node-exporter postgres-exporter cadvisor
 ```
-
-#### Spring Boot 앱 실행
-```bash
-./gradlew bootRun
-```
-
-#### 모니터링 대시보드 접속
-- **Grafana**: http://localhost:3000 (admin/admin)
-- **Prometheus**: http://localhost:9090
-- **cAdvisor**: http://localhost:8081
-- **Node Exporter**: http://localhost:9100
-- **PostgreSQL Exporter**: http://localhost:9187
-- **Redis Exporter**: http://localhost:9121
 
 ### Grafana Dashboard
 
@@ -310,32 +170,3 @@ docker compose --compatibility up -d prometheus grafana node-exporter postgres-e
 3. **Import via grafana.com** 탭 선택
 4. **Dashboard ID** 입력 (예: `4701`, `2587`)
 5. **Load** → **Prometheus** 또는 **InfluxDB** 데이터소스 선택 → **Import**
-
-### Connection Info
-- Postgres: `localhost:5432` (user: bitly, password: bitly, db: bitly)
-- Redis: `localhost:6379`
-
-### Spring Boot 설정
-- `application.yml` 예시
-```yaml
-spring:
-  datasource:
-    url: jdbc:postgresql://postgres:5432/bitly
-    username: bitly
-    password: bitly
-  redis:
-    host: redis
-    port: 6379
-server:
-  port: 8080
-```
-
-### Performance Testing Flow
-1. **Phase 1**: `k6 run k6-baseline.js` (현재 상태로 테스트)
-2. **Phase 2**: 인덱스 추가 후 `k6 run k6-indexed.js` 실행
-3. **Phase 3**: 캐시 구현 후 `k6 run k6-cached.js` 실행
-
-### Troubleshooting
-- **포트 충돌**: `docker compose down`으로 정리 후 재시작
-- **메모리 부족**: Docker Desktop 메모리 할당량 증가
-- **Redis 연결 실패**: `docker compose logs redis`로 확인
