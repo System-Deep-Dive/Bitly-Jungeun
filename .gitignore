@@ -51,3 +51,15 @@ build/
 
 # Backup files
 *.bak
+
+bin/
+bin/main/
+bin/main/application.yml
+bin/test/
+bin/test/resources/
+bin/test/resources/application.yml
+bin/test/resources/application.yml.bak
+bin/test/resources/application.yml.bak.bak
+bin/test/resources/application.yml.bak.bak.bak
+bin/test/resources/application.yml.bak.bak.bak.bak
+bin/test/resources/application.yml.bak.bak.bak.bak.bak
