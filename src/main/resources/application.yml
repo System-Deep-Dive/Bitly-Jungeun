@@ -2,16 +2,62 @@ spring:
   application:
     name: bitly
   datasource:
-    url: jdbc:postgresql://localhost:5432/bitly
-    username: bitly
-    password: bitly
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/bitly}
+    username: ${DATABASE_USERNAME:bitly}
+    password: ${DATABASE_PASSWORD:bitly}
     driver: org.postgresql.Driver
-  redis:
-    host: localhost
-    port: 6379
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
+      connect-timeout: 2000ms
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: true
+
+# 프로파일별 설정
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+  datasource:
+    url: jdbc:postgresql://postgres:5432/bitly
+    username: bitly
+    password: bitly
+  data:
+    redis:
+      host: redis
+      port: 6379
+      timeout: 2000ms
+      connect-timeout: 2000ms
+
+# Actuator 및 메트릭 설정
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    metrics:
+      enabled: true
+    health:
+      show-details: when_authorized
+  health:
+    redis:
+      enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  observations:
+    key-values:
+      application: bitly
+  info:
+    env:
+      enabled: true
+
 server:
   port: 8080
